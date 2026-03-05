@@ -16,8 +16,12 @@ fn main() -> Result<(), Error> {
         thread::sleep(Duration::from_secs(1));
         if let Some(path) = &c_path {
             let percentage_raw = String::from_utf8(read(path).unwrap()).unwrap();
-            let percentage = get_percentage(percentage_raw);
-            if percentage <= 20 {
+            let percentage = get_percentage(percentage_raw.clone());
+            let s_file = path.parent().unwrap().join("status");
+            let status = get_status(String::from_utf8(read(s_file).unwrap()).unwrap());
+            dbg!(status.clone());
+            dbg!(percentage_raw);
+            if percentage <= 20 && status != "Charging" {
                 battery_low(format!("Capacity {}", percentage));
             }
             continue;
@@ -25,10 +29,13 @@ fn main() -> Result<(), Error> {
         let dir = read_dir("/sys/class/power_supply").expect("directory error");
         dir.for_each(|f| {
             let file = f.expect("DirEntry error");
+            dbg!(&file);
             if file.path().is_dir() {
                 let files = read_dir(file.path()).unwrap();
+                dbg!(&files);
                 files.for_each(|f| {
                     let file = f.unwrap();
+                    dbg!(&file);
                     if file.path().is_file() && file.path().file_name().unwrap() == "capacity" {
                         let percentage_raw = String::from_utf8(read(file.path()).unwrap()).unwrap();
                         let percentage = get_percentage(percentage_raw);
@@ -49,6 +56,16 @@ fn get_percentage(path: String) -> i32 {
         None => {
             dbg!("you haven't battery");
             0
+        }
+    }
+}
+
+fn get_status(path: String) -> String {
+    match path.split_once('\n') {
+        Some((key, _value)) => key.to_string(),
+        None => {
+            dbg!("you haven't battery");
+            "".to_string()
         }
     }
 }
