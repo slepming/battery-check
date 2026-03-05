@@ -15,14 +15,16 @@ fn main() -> Result<(), Error> {
     loop {
         thread::sleep(Duration::from_secs(1));
         if let Some(path) = &c_path {
-            let percentage_raw = String::from_utf8(read(path).unwrap()).unwrap();
-            let percentage = get_percentage(percentage_raw.clone());
             let s_file = path.parent().unwrap().join("status");
             let status = get_status(String::from_utf8(read(s_file).unwrap()).unwrap());
             dbg!(status.clone());
-            dbg!(percentage_raw);
-            if percentage <= 20 && status != "Charging" {
-                battery_low(format!("Capacity {}", percentage));
+            if status != "Charging" {
+                let percentage_raw = String::from_utf8(read(path).unwrap()).unwrap();
+                let percentage = get_percentage(percentage_raw.clone());
+                dbg!(percentage_raw);
+                if percentage <= 20 && status != "Charging" {
+                    battery_low(format!("Capacity {}", percentage));
+                }
             }
             continue;
         }
