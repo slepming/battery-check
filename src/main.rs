@@ -5,19 +5,25 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "niri")]
+use ::notify::notification::Notification;
+
+#[cfg(feature = "hypr")]
 use hyprland::{
     ctl::{Color, notify},
     hyprpaper::Error,
 };
 
-fn main() -> Result<(), Error> {
+fn main() {
     let mut c_path: Option<PathBuf> = None;
+    let mut charging = false;
     loop {
         thread::sleep(Duration::from_secs(1));
+
         if let Some(path) = &c_path {
             let s_file = path.parent().unwrap().join("status");
             let status = get_status(String::from_utf8(read(s_file).unwrap()).unwrap());
-            dbg!(status.clone());
+            dbg!(charging);
             if status != "Charging" {
                 let percentage_raw = String::from_utf8(read(path).unwrap()).unwrap();
                 let percentage = get_percentage(percentage_raw.clone());
@@ -25,6 +31,14 @@ fn main() -> Result<(), Error> {
                 if percentage <= 20 && status != "Charging" {
                     battery_low(format!("Capacity {}", percentage));
                 }
+
+                if charging {
+                    send_notification("battery discharging".to_string());
+                    charging = false;
+                }
+            } else if !charging {
+                send_notification("Battery charging".to_string());
+                charging = true;
             }
             continue;
         }
@@ -72,6 +86,12 @@ fn get_status(path: String) -> String {
     }
 }
 
+#[cfg(feature = "niri")]
+fn battery_low(battery: String) {
+    send_notification(format!("Capacity very low! {}", battery));
+}
+
+#[cfg(feature = "hypr")]
 fn battery_low(battery: String) {
     notify::call(
         notify::Icon::NoIcon,
@@ -80,4 +100,20 @@ fn battery_low(battery: String) {
         format!("battery is low! {}", battery),
     )
     .unwrap();
+}
+
+#[cfg(feature = "niri")]
+fn send_notification(message: String) {
+    Notification::init("battery-check");
+    let not = Notification::notification_new("Battery", &message, "");
+    not.notification_show();
+}
+
+mod tests {
+    use crate::battery_low;
+
+    #[test]
+    fn battery_notification_start() {
+        battery_low("30".to_string());
+    }
 }
