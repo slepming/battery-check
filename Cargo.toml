@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-hyprland = { version = "0.4.0-beta.3", default-features = false, optional = true }
+hyprland = { version = "0.4.0-beta.3", optional = true }
 notify = { git = "https://github.com/slepming/notify.git", optional = true }
 
 [features]

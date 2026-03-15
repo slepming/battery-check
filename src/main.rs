@@ -109,6 +109,17 @@ fn send_notification(message: String) {
     not.notification_show();
 }
 
+#[cfg(feature = "hypr")]
+fn send_notification(message: String) {
+    notify::call(
+        notify::Icon::NoIcon,
+        Duration::from_secs_f32(5.0),
+        Color::new(255, 0, 0, 255),
+        format!("battery is low! {}", message),
+    )
+    .unwrap();
+}
+
 mod tests {
     use crate::battery_low;
 
