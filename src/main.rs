@@ -17,6 +17,7 @@ use hyprland::{
 fn main() {
     let mut c_path: Option<PathBuf> = None;
     let mut charging = false;
+    let mut low_capacity_notification_show = true;
     loop {
         thread::sleep(Duration::from_secs(1));
 
@@ -24,12 +25,18 @@ fn main() {
             let s_file = path.parent().unwrap().join("status");
             let status = get_status(String::from_utf8(read(s_file).unwrap()).unwrap());
             dbg!(charging);
+            dbg!(low_capacity_notification_show);
             if status != "Charging" {
                 let percentage_raw = String::from_utf8(read(path).unwrap()).unwrap();
                 let percentage = get_percentage(percentage_raw.clone());
-                dbg!(percentage_raw);
-                if percentage <= 20 && status != "Charging" {
+                dbg!(percentage);
+                if percentage <= 20 && status != "Charging" && low_capacity_notification_show {
                     battery_low(format!("Capacity {}", percentage));
+                    low_capacity_notification_show = false;
+                }
+
+                if percentage > 20 && !low_capacity_notification_show {
+                    low_capacity_notification_show = true;
                 }
 
                 if charging {
