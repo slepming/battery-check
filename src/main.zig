@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 
 const Battery = struct {
     battery_charge_point: u32 = 20,
-    current_capacity: u32 = undefined,
+    current_capacity: f32 = undefined,
     capacity: u32 = undefined,
     action: *const fn (u32, u32, u32) void = undefined,
 
@@ -35,18 +35,25 @@ const Battery = struct {
         defer dir.close(io);
 
         var power_supply_iter = dir.iterate();
+        var battery: Battery = undefined;
 
         while (try power_supply_iter.next(io)) |entry| {
             std.debug.print("power_supply_iter {s}, {}\n", .{ entry.name, entry.inode });
             const parts = [_][]const u8{ battery_path, entry.name };
-            const subdirectory_path = try std.Io.Dir.path.join(allocator, &parts);
+            const subdirectory_path = try Io.Dir.path.join(allocator, &parts);
             const power_supply_subdirectory = try Io.Dir.cwd().openDir(io, subdirectory_path, .{ .iterate = true });
             defer power_supply_subdirectory.close(io);
 
             var power_supply_subdirectory_iter = power_supply_subdirectory.iterate();
             while (try power_supply_subdirectory_iter.next(io)) |raw_model| {
                 std.debug.print("power_supply_subdirectory_iter {s}\n", .{raw_model.name});
-                if (raw_model.kind == .file) {}
+                if (raw_model.kind == .file and std.mem.eql(u8, raw_model.name, "capacity")) {
+                    var buf: [128]u8 = undefined;
+                    _ = try Io.Dir.cwd().readFile(io, "capacity", &buf);
+                    const capacity = try std.fmt.parseFloat(f32, buf[0..]);
+                    battery.current_capacity = capacity;
+                    std.debug.print("current capacity: {}", .{capacity});
+                }
             }
         }
     }
@@ -60,7 +67,10 @@ pub fn main(init: std.process.Init) !void {
     allocator = arena.allocator();
     const argv: []const [:0]const u8 = try init.minimal.args.toSlice(allocator);
 
-    const battery_charge_point: i32 = try std.fmt.parseInt(i32, argv[1], 10);
+    var battery_charge_point: i32 = 20;
+    if (argv.len > 1) {
+        battery_charge_point = std.fmt.parseInt(i32, argv[1], 10) catch 20;
+    }
     std.debug.print("{d}\n", .{battery_charge_point});
     try Battery.default(allocator, init.io);
 }
