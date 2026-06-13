@@ -21,15 +21,9 @@ const Battery = struct {
         return bat;
     }
 
-    /// Sets the capacity and returns pointer to battery
-    pub fn set_capacity(bat: *Battery, c: u32) *Battery {
-        bat.capacity = c;
-        return bat;
-    }
-
     /// Auto field filling.
     /// Returns Battery
-    pub fn default(allocator: Allocator, io: Io) !void {
+    pub fn default(allocator: Allocator, io: Io) !Battery {
         const battery_path = "/sys/class/power_supply";
         const dir = try Io.Dir.cwd().openDir(io, battery_path, .{ .iterate = true });
         defer dir.close(io);
@@ -56,6 +50,7 @@ const Battery = struct {
                 }
             }
         }
+        return battery;
     }
 };
 
@@ -67,10 +62,11 @@ pub fn main(init: std.process.Init) !void {
     allocator = arena.allocator();
     const argv: []const [:0]const u8 = try init.minimal.args.toSlice(allocator);
 
-    var battery_charge_point: i32 = 20;
+    var battery_charge_point: u32 = 20;
     if (argv.len > 1) {
-        battery_charge_point = std.fmt.parseInt(i32, argv[1], 10) catch 20;
+        battery_charge_point = std.fmt.parseInt(u32, argv[1], 10) catch 20;
     }
     std.debug.print("{d}\n", .{battery_charge_point});
-    try Battery.default(allocator, init.io);
+    var battery: Battery = try Battery.default(allocator, init.io);
+    _ = try battery.set_trigger_point(battery_charge_point);
 }
