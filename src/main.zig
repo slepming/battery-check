@@ -1,5 +1,6 @@
 const std = @import("std");
 const Io = std.Io;
+const Allocator = std.mem.Allocator;
 
 const Battery = struct {
     battery_charge_point: u32 = 20,
@@ -28,23 +29,24 @@ const Battery = struct {
 
     /// Auto field filling.
     /// Returns Battery
-    pub fn default(io: Io) !void {
-        const dir = try Io.Dir.cwd().openDir(io, "/sys/class/power_supply", .{ .iterate = true });
+    pub fn default(allocator: Allocator, io: Io) !void {
+        const battery_path = "/sys/class/power_supply";
+        const dir = try Io.Dir.cwd().openDir(io, battery_path, .{ .iterate = true });
         defer dir.close(io);
 
         var power_supply_iter = dir.iterate();
 
         while (try power_supply_iter.next(io)) |entry| {
-            std.debug.print("power_supply_iter {s}\n", .{entry.name});
-            if (entry.kind == .directory) {
-                const power_supply_subdirectory = try Io.Dir.cwd().openDir(io, entry.name, .{ .iterate = true });
-                defer power_supply_subdirectory.close(io);
+            std.debug.print("power_supply_iter {s}, {}\n", .{ entry.name, entry.inode });
+            const parts = [_][]const u8{ battery_path, entry.name };
+            const subdirectory_path = try std.Io.Dir.path.join(allocator, &parts);
+            const power_supply_subdirectory = try Io.Dir.cwd().openDir(io, subdirectory_path, .{ .iterate = true });
+            defer power_supply_subdirectory.close(io);
 
-                var power_supply_subdirectory_iter = power_supply_subdirectory.iterate();
-                while (try power_supply_subdirectory_iter.next(io)) |raw_model| {
-                    std.debug.print("power_supply_subdirectory_iter {s}\n", .{raw_model.name});
-                    if (raw_model.kind == .file) {}
-                }
+            var power_supply_subdirectory_iter = power_supply_subdirectory.iterate();
+            while (try power_supply_subdirectory_iter.next(io)) |raw_model| {
+                std.debug.print("power_supply_subdirectory_iter {s}\n", .{raw_model.name});
+                if (raw_model.kind == .file) {}
             }
         }
     }
@@ -54,11 +56,11 @@ pub fn main(init: std.process.Init) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
-    const allocator = arena.allocator();
-
+    var allocator: Allocator = undefined;
+    allocator = arena.allocator();
     const argv: []const [:0]const u8 = try init.minimal.args.toSlice(allocator);
 
     const battery_charge_point: i32 = try std.fmt.parseInt(i32, argv[1], 10);
     std.debug.print("{d}\n", .{battery_charge_point});
-    try Battery.default(init.io);
+    try Battery.default(allocator, init.io);
 }
