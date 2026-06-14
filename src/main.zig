@@ -4,13 +4,12 @@ const Allocator = std.mem.Allocator;
 
 const Battery = struct {
     battery_charge_point: u32 = 20,
-    current_capacity: f32 = undefined,
-    capacity: u32 = undefined,
     action: *const fn (u32, u32, u32) void = undefined,
+    capacity_path: []const u8,
 
     /// Sets the trigger actuation point and returns pointer to battery
     pub fn set_trigger_point(bat: *Battery, point: u32) !*Battery {
-        if (point > bat.capacity) return error.InvalidPoint;
+        //if (point > bat.capacity) return error.InvalidPoint;
         bat.battery_charge_point = point;
         return bat;
     }
@@ -23,7 +22,7 @@ const Battery = struct {
 
     /// Auto field filling.
     /// Returns Battery
-    pub fn default(allocator: Allocator, io: Io) !Battery {
+    pub fn default(allocator: Allocator, io: Io) !?Battery {
         const battery_path = "/sys/class/power_supply";
         const dir = try Io.Dir.cwd().openDir(io, battery_path, .{ .iterate = true });
         defer dir.close(io);
@@ -43,14 +42,18 @@ const Battery = struct {
                 std.debug.print("power_supply_subdirectory_iter {s}\n", .{raw_model.name});
                 if (raw_model.kind == .file and std.mem.eql(u8, raw_model.name, "capacity")) {
                     var buf: [128]u8 = undefined;
-                    _ = try Io.Dir.cwd().readFile(io, "capacity", &buf);
-                    const capacity = try std.fmt.parseFloat(f32, buf[0..]);
-                    battery.current_capacity = capacity;
+                    const capacity_path = try Io.Dir.path.join(allocator, &[_][]const u8{ battery_path, entry.name, "capacity" });
+                    _ = try Io.Dir.cwd().readFile(io, capacity_path, &buf);
+                    var tok = std.mem.tokenizeSequence(u8, &buf, "\n");
+                    const capacity_raw = tok.next() orelse "0";
+                    const capacity = try std.fmt.parseInt(u8, capacity_raw, 10);
                     std.debug.print("current capacity: {}", .{capacity});
+                    battery = Battery{ .capacity_path = capacity_path };
+                    return battery;
                 }
             }
         }
-        return battery;
+        return null;
     }
 };
 
@@ -67,6 +70,8 @@ pub fn main(init: std.process.Init) !void {
         battery_charge_point = std.fmt.parseInt(u32, argv[1], 10) catch 20;
     }
     std.debug.print("{d}\n", .{battery_charge_point});
-    var battery: Battery = try Battery.default(allocator, init.io);
-    _ = try battery.set_trigger_point(battery_charge_point);
+    var battery = try Battery.default(allocator, init.io);
+    if (battery) |*bat| {
+        _ = try bat.set_trigger_point(battery_charge_point);
+    }
 }
