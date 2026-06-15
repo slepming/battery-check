@@ -153,4 +153,8 @@ pub fn build(b: *std.Build) void {
     //
     // Lastly, the Zig build system is relatively simple and self-contained,
     // and reading its source code will allow you to master it.
+    const dep = b.dependency("zig_notify", .{ .target = target, .optimize = optimize });
+    exe.root_module.linkSystemLibrary("glib-2.0", .{});
+    exe.root_module.linkSystemLibrary("gdk-pixbuf-2.0", .{});
+    exe.root_module.addImport("zig-notify", dep.module("zig-notify"));
 }

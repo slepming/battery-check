@@ -1,10 +1,35 @@
 const std = @import("std");
+const notify = @import("zig-notify");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
+pub fn send_notification(message: []const u8) void {
+    _ = message;
+    notify.send("Warning", "Battery is low", notify.Urgency.critical);
+}
+
+pub fn loop(io: Io, battery: *Battery) !void {
+    while (true) {
+        var buf: [128]u8 = undefined;
+        _ = try Io.Dir.cwd().readFile(io, battery.capacity_path, &buf);
+        var tok = std.mem.tokenizeSequence(u8, &buf, "\n");
+        const capacity_raw = tok.next() orelse "0";
+        const capacity = try std.fmt.parseInt(u8, capacity_raw, 10);
+        std.debug.print("current capacity: {}\n", .{capacity});
+        if (capacity < battery.battery_charge_point) {
+            std.debug.print("battery's capacity low\n", .{});
+            var buffer: [15]u8 = undefined;
+            const capacity_string = try std.fmt.bufPrint(&buffer, "{}", .{capacity});
+            send_notification(capacity_string);
+        }
+        try io.sleep(.fromSeconds(3), .real);
+    }
+}
+
 const Battery = struct {
     battery_charge_point: u32 = 20,
-    action: *const fn (u32, u32, u32) void = undefined,
+    // capacity
+    action: ?*const fn (u8) void = null,
     capacity_path: []const u8,
 
     /// Sets the trigger actuation point and returns pointer to battery
@@ -15,7 +40,7 @@ const Battery = struct {
     }
 
     /// Sets trigger action and returns pointer to battery
-    pub fn on_trigger(bat: *Battery, f: fn (u32, u32, u32) void) *Battery {
+    pub fn on_trigger(bat: *Battery, f: fn (u8) void) *Battery {
         bat.action = f;
         return bat;
     }
@@ -47,7 +72,7 @@ const Battery = struct {
                     var tok = std.mem.tokenizeSequence(u8, &buf, "\n");
                     const capacity_raw = tok.next() orelse "0";
                     const capacity = try std.fmt.parseInt(u8, capacity_raw, 10);
-                    std.debug.print("current capacity: {}", .{capacity});
+                    std.debug.print("current capacity: {}\n", .{capacity});
                     battery = Battery{ .capacity_path = capacity_path };
                     return battery;
                 }
@@ -57,6 +82,12 @@ const Battery = struct {
     }
 };
 
+fn callback(i: u8) void {
+    var buf: [4]u8 = undefined;
+    const string = std.fmt.bufPrint(&buf, "{}", .{i}) catch "5";
+    send_notification(string);
+}
+
 pub fn main(init: std.process.Init) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -65,13 +96,21 @@ pub fn main(init: std.process.Init) !void {
     allocator = arena.allocator();
     const argv: []const [:0]const u8 = try init.minimal.args.toSlice(allocator);
 
+    // Notify init
+    try notify.init("battery-check");
+
     var battery_charge_point: u32 = 20;
+
     if (argv.len > 1) {
         battery_charge_point = std.fmt.parseInt(u32, argv[1], 10) catch 20;
     }
     std.debug.print("{d}\n", .{battery_charge_point});
+
     var battery = try Battery.default(allocator, init.io);
+
     if (battery) |*bat| {
         _ = try bat.set_trigger_point(battery_charge_point);
+        _ = bat.on_trigger(callback);
+        try loop(init.io, bat);
     }
 }
