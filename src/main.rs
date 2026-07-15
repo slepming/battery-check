@@ -18,6 +18,7 @@ fn main() {
     let mut c_path: Option<PathBuf> = None;
     let mut charging = false;
     let mut low_capacity_notification_show = true;
+    let critical_percentage = 25;
     loop {
         thread::sleep(Duration::from_secs(1));
 
@@ -30,12 +31,12 @@ fn main() {
                 let percentage_raw = String::from_utf8(read(path).unwrap()).unwrap();
                 let percentage = get_percentage(percentage_raw.clone());
                 dbg!(percentage);
-                if percentage <= 20 && status != "Charging" && low_capacity_notification_show {
+                if percentage <= critical_percentage && status != "Charging" && low_capacity_notification_show {
                     battery_low(format!("Capacity {}", percentage));
                     low_capacity_notification_show = false;
                 }
 
-                if percentage > 20 && !low_capacity_notification_show {
+                if percentage > critical_percentage && !low_capacity_notification_show {
                     low_capacity_notification_show = true;
                 }
 
@@ -62,7 +63,7 @@ fn main() {
                     if file.path().is_file() && file.path().file_name().unwrap() == "capacity" {
                         let percentage_raw = String::from_utf8(read(file.path()).unwrap()).unwrap();
                         let percentage = get_percentage(percentage_raw);
-                        if percentage <= 20 {
+                        if percentage <= critical_percentage {
                             battery_low(format!("Capacity {}", percentage));
                         }
                         c_path = Some(file.path());
