@@ -1,11 +1,19 @@
 const std = @import("std");
-const notify = @import("zig-notify");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
+extern "c" fn notify_init(app_name: [*c]const u8) c_int;
+extern "c" fn notify_uninit() void;
+
+extern "c" fn notify_notification_new(summary: [*c]const u8, body: [*c]const u8, icon: [*c]const u8) ?*anyopaque;
+extern "c" fn notify_notification_show(notification: *anyopaque, err: ?*anyopaque) c_int;
+
 pub fn send_notification(message: []const u8) void {
     _ = message;
-    notify.send("Warning", "Battery is low", notify.Urgency.critical);
+    const notification = notify_notification_new("Warning", "Battery is low", "");
+    if (notification) |notify| {
+        _ = notify_notification_show(notify, null);
+    }
 }
 
 pub fn loop(io: Io, battery: *Battery) !void {
@@ -97,7 +105,11 @@ pub fn main(init: std.process.Init) !void {
     const argv: []const [:0]const u8 = try init.minimal.args.toSlice(allocator);
 
     // Notify init
-    try notify.init("battery-check");
+    const notify_success = notify_init("battery-check");
+
+    if (notify_success == 0) {
+        return;
+    }
 
     var battery_charge_point: u32 = 20;
 

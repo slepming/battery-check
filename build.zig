@@ -69,6 +69,7 @@ pub fn build(b: *std.Build) void {
             // can also hardcode a specific target for an executable or library
             // definition if desireable (e.g. firmware for embedded devices).
             .target = target,
+            .link_libc = true,
             .optimize = optimize,
             // List of modules available for import in source files part of the
             // root module.
@@ -153,8 +154,8 @@ pub fn build(b: *std.Build) void {
     //
     // Lastly, the Zig build system is relatively simple and self-contained,
     // and reading its source code will allow you to master it.
-    const dep = b.dependency("zig_notify", .{ .target = target, .optimize = optimize });
+    //const dep = b.dependency("zig_notify", .{ .target = target, .optimize = optimize });
+    //exe.root_module.addImport("zig-notify", dep.module("zig-notify"));
+    exe.root_module.linkSystemLibrary("libnotify", .{});
     exe.root_module.linkSystemLibrary("glib-2.0", .{});
-    exe.root_module.linkSystemLibrary("gdk-pixbuf-2.0", .{});
-    exe.root_module.addImport("zig-notify", dep.module("zig-notify"));
 }
