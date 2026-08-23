@@ -55,7 +55,7 @@ const Battery = struct {
 
     /// Auto field filling.
     /// Returns Battery
-    pub fn default(allocator: Allocator, io: Io) !?Battery {
+    pub fn default(allocator: Allocator, io: Io) !Battery {
         const battery_path = "/sys/class/power_supply";
         const dir = try Io.Dir.cwd().openDir(io, battery_path, .{ .iterate = true });
         defer dir.close(io);
@@ -86,7 +86,8 @@ const Battery = struct {
                 }
             }
         }
-        return null;
+
+        return error.BatteryNotFound;
     }
 };
 
@@ -120,9 +121,7 @@ pub fn main(init: std.process.Init) !void {
 
     var battery = try Battery.default(allocator, init.io);
 
-    if (battery) |*bat| {
-        _ = try bat.set_trigger_point(battery_charge_point);
-        _ = bat.on_trigger(callback);
-        try loop(init.io, bat);
-    }
+    _ = try battery.set_trigger_point(battery_charge_point);
+    _ = battery.on_trigger(callback);
+    try loop(init.io, &battery);
 }
