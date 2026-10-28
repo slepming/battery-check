@@ -4,21 +4,25 @@ const builtin = @import("builtin");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
-const linux_notifications = if (builtin.os.tag == .linux) struct {
+const notifications = if (builtin.os.tag == .linux or builtin.os.tag.isBSD()) struct {
+    // libnotify
+
     extern "c" fn notify_init(app_name: [*c]const u8) c_int;
     extern "c" fn notify_uninit() void;
 
     extern "c" fn notify_notification_new(summary: [*c]const u8, body: [*c]const u8, icon: [*c]const u8) ?*anyopaque;
     extern "c" fn notify_notification_show(notification: *anyopaque, err: ?*anyopaque) c_int;
-} else @compileError("This function only on linux");
+} else @compileError("This function only on linux and bsd");
+
+const sysctl_freebsd = if (builtin.os.tag.isBSD()) @cImport({
+    @cInclude("sys/sysctl.h");
+}) else @compileError("This structure supported only on bsd");
 
 pub fn send_notification(message: []const u8) void {
     _ = message;
-    if (builtin.os.tag == .linux) {
-        const notification = linux_notifications.notify_notification_new("Warning", "Battery is low", "");
-        if (notification) |notify| {
-            _ = linux_notifications.notify_notification_show(notify, null);
-        }
+    const notification = notifications.notify_notification_new("Warning", "Battery is low", "");
+    if (notification) |notify| {
+        _ = notifications.notify_notification_show(notify, null);
     }
 }
 
@@ -62,35 +66,47 @@ const Battery = struct {
     /// Auto field filling.
     /// Returns Battery
     pub fn default(allocator: Allocator, io: Io) !Battery {
-        const battery_path = "/sys/class/power_supply";
-        const dir = try Io.Dir.cwd().openDir(io, battery_path, .{ .iterate = true });
-        defer dir.close(io);
+        if (builtin.os.tag == .linux) {
+            const battery_path = "/sys/class/power_supply";
+            const dir = try Io.Dir.cwd().openDir(io, battery_path, .{ .iterate = true });
+            defer dir.close(io);
 
-        var power_supply_iter = dir.iterate();
-        var battery: Battery = undefined;
+            var power_supply_iter = dir.iterate();
+            var battery: Battery = undefined;
 
-        while (try power_supply_iter.next(io)) |entry| {
-            std.debug.print("power_supply_iter {s}, {}\n", .{ entry.name, entry.inode });
-            const parts = [_][]const u8{ battery_path, entry.name };
-            const subdirectory_path = try Io.Dir.path.join(allocator, &parts);
-            const power_supply_subdirectory = try Io.Dir.cwd().openDir(io, subdirectory_path, .{ .iterate = true });
-            defer power_supply_subdirectory.close(io);
+            while (try power_supply_iter.next(io)) |entry| {
+                std.debug.print("power_supply_iter {s}, {}\n", .{ entry.name, entry.inode });
+                const parts = [_][]const u8{ battery_path, entry.name };
+                const subdirectory_path = try Io.Dir.path.join(allocator, &parts);
+                const power_supply_subdirectory = try Io.Dir.cwd().openDir(io, subdirectory_path, .{ .iterate = true });
+                defer power_supply_subdirectory.close(io);
 
-            var power_supply_subdirectory_iter = power_supply_subdirectory.iterate();
-            while (try power_supply_subdirectory_iter.next(io)) |raw_model| {
-                std.debug.print("power_supply_subdirectory_iter {s}\n", .{raw_model.name});
-                if (raw_model.kind == .file and std.mem.eql(u8, raw_model.name, "capacity")) {
-                    var buf: [128]u8 = undefined;
-                    const capacity_path = try Io.Dir.path.join(allocator, &[_][]const u8{ battery_path, entry.name, "capacity" });
-                    _ = try Io.Dir.cwd().readFile(io, capacity_path, &buf);
-                    var tok = std.mem.tokenizeSequence(u8, &buf, "\n");
-                    const capacity_raw = tok.next() orelse "0";
-                    const capacity = try std.fmt.parseInt(u8, capacity_raw, 10);
-                    std.debug.print("current capacity: {}\n", .{capacity});
-                    battery = Battery{ .capacity_path = capacity_path };
-                    return battery;
+                var power_supply_subdirectory_iter = power_supply_subdirectory.iterate();
+                while (try power_supply_subdirectory_iter.next(io)) |raw_model| {
+                    std.debug.print("power_supply_subdirectory_iter {s}\n", .{raw_model.name});
+                    if (raw_model.kind == .file and std.mem.eql(u8, raw_model.name, "capacity")) {
+                        var buf: [128]u8 = undefined;
+                        const capacity_path = try Io.Dir.path.join(allocator, &[_][]const u8{ battery_path, entry.name, "capacity" });
+                        _ = try Io.Dir.cwd().readFile(io, capacity_path, &buf);
+                        var tok = std.mem.tokenizeSequence(u8, &buf, "\n");
+                        const capacity_raw = tok.next() orelse "0";
+                        const capacity = try std.fmt.parseInt(u8, capacity_raw, 10);
+                        std.debug.print("current capacity: {}\n", .{capacity});
+                        battery = Battery{ .capacity_path = capacity_path };
+                        return battery;
+                    }
                 }
             }
+        } else if (builtin.os.tag.isBSD()) {
+            var value: c_int = 0;
+            var len: usize = @sizeOf(c_int);
+
+            if (sysctl_freebsd.sysctl("hw.acpi.battery.life", &value, &len, null, 0) != 0) {
+                std.log.err("err: {any}", std.c.errno(-1));
+                return error.SysctlError;
+            }
+
+            if (len != @sizeOf(c_int)) return error.UnexpectedSysctlSize;
         }
 
         return error.BatteryNotFound;
@@ -104,9 +120,10 @@ fn callback(i: u8) void {
 }
 
 pub fn main(init: std.process.Init) !void {
-    if (builtin.os.tag.isBSD() or builtin.os.tag.isDarwin()) {
-        @compileError("BSD systems or Darwin not supported");
+    if (builtin.os.tag.isDarwin()) {
+        @compileError("Darwin not supported");
     }
+
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
@@ -115,12 +132,10 @@ pub fn main(init: std.process.Init) !void {
     const argv: []const [:0]const u8 = try init.minimal.args.toSlice(allocator);
 
     // Notify init
-    if (builtin.os.tag == .linux) {
-        const notify_success = linux_notifications.notify_init("battery-check");
+    const notify_success = notifications.notify_init("battery-check");
 
-        if (notify_success == 0) {
-            return;
-        }
+    if (notify_success == 0) {
+        return;
     }
 
     var battery_charge_point: u32 = 20;
