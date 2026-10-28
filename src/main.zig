@@ -1,18 +1,24 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
-extern "c" fn notify_init(app_name: [*c]const u8) c_int;
-extern "c" fn notify_uninit() void;
+const linux_notifications = if (builtin.os.tag == .linux) struct {
+    extern "c" fn notify_init(app_name: [*c]const u8) c_int;
+    extern "c" fn notify_uninit() void;
 
-extern "c" fn notify_notification_new(summary: [*c]const u8, body: [*c]const u8, icon: [*c]const u8) ?*anyopaque;
-extern "c" fn notify_notification_show(notification: *anyopaque, err: ?*anyopaque) c_int;
+    extern "c" fn notify_notification_new(summary: [*c]const u8, body: [*c]const u8, icon: [*c]const u8) ?*anyopaque;
+    extern "c" fn notify_notification_show(notification: *anyopaque, err: ?*anyopaque) c_int;
+} else @compileError("This function only on linux");
 
 pub fn send_notification(message: []const u8) void {
     _ = message;
-    const notification = notify_notification_new("Warning", "Battery is low", "");
-    if (notification) |notify| {
-        _ = notify_notification_show(notify, null);
+    if (builtin.os.tag == .linux) {
+        const notification = linux_notifications.notify_notification_new("Warning", "Battery is low", "");
+        if (notification) |notify| {
+            _ = linux_notifications.notify_notification_show(notify, null);
+        }
     }
 }
 
@@ -98,6 +104,9 @@ fn callback(i: u8) void {
 }
 
 pub fn main(init: std.process.Init) !void {
+    if (builtin.os.tag.isBSD() or builtin.os.tag.isDarwin()) {
+        @compileError("BSD systems or Darwin not supported");
+    }
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
@@ -106,10 +115,12 @@ pub fn main(init: std.process.Init) !void {
     const argv: []const [:0]const u8 = try init.minimal.args.toSlice(allocator);
 
     // Notify init
-    const notify_success = notify_init("battery-check");
+    if (builtin.os.tag == .linux) {
+        const notify_success = linux_notifications.notify_init("battery-check");
 
-    if (notify_success == 0) {
-        return;
+        if (notify_success == 0) {
+            return;
+        }
     }
 
     var battery_charge_point: u32 = 20;
